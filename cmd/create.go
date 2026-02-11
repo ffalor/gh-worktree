@@ -2,9 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 
-	"github.com/charmbracelet/huh"
+	"github.com/cli/go-gh/v2/pkg/prompter"
 	"github.com/ffalor/gh-worktree/internal/config"
 	"github.com/ffalor/gh-worktree/internal/git"
 	"github.com/ffalor/gh-worktree/internal/worktree"
@@ -53,13 +54,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			}
 		} else {
 			// Prompt user
-			var confirm bool
-			err := huh.NewConfirm().
-				Title(fmt.Sprintf("Worktree already exists at %s. Overwrite?", worktreePath)).
-				Affirmative("Yes, overwrite").
-				Negative("No, cancel").
-				Value(&confirm).
-				Run()
+			p := prompter.New(os.Stdin, os.Stdout, os.Stderr)
+			confirm, err := p.Confirm(fmt.Sprintf("Worktree already exists at %s. Overwrite?", worktreePath), false)
 			if err != nil {
 				return fmt.Errorf("prompt failed: %w", err)
 			}
@@ -93,20 +89,30 @@ func runCreate(cmd *cobra.Command, args []string) error {
 				return worktree.BranchActionAttach
 			}
 
-			var selected worktree.BranchAction
-			err := huh.NewSelect[worktree.BranchAction]().
-				Title(fmt.Sprintf("Branch '%s' already exists. What would you like to do?", branchName)).
-				Options(
-					huh.NewOption("Overwrite (delete and recreate)", worktree.BranchActionOverwrite),
-					huh.NewOption("Attach (use existing branch)", worktree.BranchActionAttach),
-					huh.NewOption("No (cancel)", worktree.BranchActionCancel),
-				).
-				Value(&selected).
-				Run()
+			p := prompter.New(os.Stdin, os.Stdout, os.Stderr)
+			options := []string{
+				"Overwrite (delete and recreate)",
+				"Attach (use existing branch)",
+				"No (cancel)",
+			}
+			selectedIndex, err := p.Select(fmt.Sprintf("Branch '%s' already exists. What would you like to do?", branchName), "", options)
 			if err != nil {
 				fmt.Printf("prompt failed: %v\n", err)
 				return worktree.BranchActionCancel
 			}
+
+			var selected worktree.BranchAction
+			switch selectedIndex {
+			case 0:
+				selected = worktree.BranchActionOverwrite
+			case 1:
+				selected = worktree.BranchActionAttach
+			case 2:
+				selected = worktree.BranchActionCancel
+			default:
+				selected = worktree.BranchActionCancel
+			}
+
 			if selected == worktree.BranchActionOverwrite {
 				fmt.Printf("Removing existing branch '%s' from bare repository...\n", branchName)
 				if err := git.BranchDelete(repoPath, branchName, true); err != nil {

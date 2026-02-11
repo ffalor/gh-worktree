@@ -125,6 +125,11 @@ func ListWorktrees(repoPath string) ([]string, error) {
 	return worktrees, nil
 }
 
+// WorktreePrune prunes stale worktree records
+func WorktreePrune(repoPath string) error {
+	return CommandSilent(repoPath, "worktree", "prune")
+}
+
 // IsGitRepository checks if a directory is a git repository
 func IsGitRepository(path string) bool {
 	cmd := exec.Command("git", "rev-parse", "--git-dir")

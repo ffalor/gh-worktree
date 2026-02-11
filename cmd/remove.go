@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/huh"
+	"github.com/cli/go-gh/v2/pkg/prompter"
 	"github.com/ffalor/gh-worktree/internal/config"
 	"github.com/ffalor/gh-worktree/internal/git"
 	"github.com/ffalor/gh-worktree/internal/worktree"
@@ -71,13 +71,8 @@ func runRemove(cmd *cobra.Command, args []string) error {
 
 	// Check for uncommitted changes if not forced
 	if !forceFlag && git.HasUncommittedChanges(worktreePath) {
-		var confirm bool
-		err := huh.NewConfirm().
-			Title(fmt.Sprintf("Worktree '%s' has uncommitted changes. Remove anyway?", worktreeName)).
-			Affirmative("Yes, remove").
-			Negative("No, keep it").
-			Value(&confirm).
-			Run()
+		p := prompter.New(os.Stdin, os.Stdout, os.Stderr)
+		confirm, err := p.Confirm(fmt.Sprintf("Worktree '%s' has uncommitted changes. Remove anyway?", worktreeName), false)
 		if err != nil {
 			return fmt.Errorf("prompt failed: %w", err)
 		}

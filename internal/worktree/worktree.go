@@ -139,6 +139,11 @@ func (c *Creator) setupWorktree(info *WorktreeInfo) error {
 		}
 	}
 
+	// Prune stale worktree records before attempting to add a new worktree
+	if err := git.WorktreePrune(c.repoPath); err != nil {
+		return fmt.Errorf("failed to prune stale worktree records: %w", err)
+	}
+
 	// Check if worktree already exists
 	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
 		return fmt.Errorf("worktree already exists: %s", worktreePath)
