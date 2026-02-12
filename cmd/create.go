@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	gh "github.com/cli/go-gh/v2"
@@ -194,7 +193,7 @@ func createWorktree(info *worktree.WorktreeInfo) error {
 	}
 
 	creator := worktree.NewCreatorWithCheck(func(branchName string) worktree.BranchAction {
-		if branchExists(repoPath, branchName) {
+		if git.BranchExists(repoPath, branchName) {
 			if forceFlag {
 				fmt.Printf("Removing existing branch '%s' from bare repository...\n", branchName)
 				if err := git.BranchDelete(repoPath, branchName, true); err != nil {
@@ -266,11 +265,4 @@ func createWorktree(info *worktree.WorktreeInfo) error {
 	}
 
 	return nil
-}
-
-func branchExists(repoPath, branch string) bool {
-	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
-	cmd.Dir = repoPath
-	err := cmd.Run()
-	return err == nil
 }

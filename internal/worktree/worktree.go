@@ -63,10 +63,12 @@ func (c *Creator) Cleanup() error {
 			errs = append(errs, fmt.Errorf("failed to remove directory %s: %w", dir, err))
 		}
 	}
-	// Remove created branches
+	// Remove created branches (skip if already gone)
 	for _, branch := range c.createdBranches {
-		if err := git.BranchDelete(c.repoPath, branch, true); err != nil {
-			errs = append(errs, fmt.Errorf("failed to delete branch %s: %w", branch, err))
+		if git.BranchExists(c.repoPath, branch) {
+			if err := git.BranchDelete(c.repoPath, branch, true); err != nil {
+				errs = append(errs, fmt.Errorf("failed to delete branch %s: %w", branch, err))
+			}
 		}
 	}
 

@@ -90,6 +90,14 @@ func BranchDelete(repoPath, branch string, force bool) error {
 	return Command(repoPath, args...)
 }
 
+// BranchExists checks if a branch exists in the repository
+func BranchExists(repoPath, branch string) bool {
+	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	cmd.Dir = repoPath
+	err := cmd.Run()
+	return err == nil
+}
+
 // HasUncommittedChanges checks if a worktree has uncommitted changes
 func HasUncommittedChanges(worktreePath string) bool {
 	// Check for staged or unstaged changes
