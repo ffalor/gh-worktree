@@ -2,10 +2,8 @@ package cmd
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/cli/go-gh/v2/pkg/prompter"
 	"github.com/ffalor/gh-worktree/internal/config"
@@ -16,8 +14,8 @@ import (
 
 // removeCmd represents the remove command
 var removeCmd = &cobra.Command{
-	Use:   "remove [worktree-name|url]",
-	Short: "Remove a worktree",
+	Use:   "remove [worktree-name]",
+	Short: "Remove a worktree and its associated branch",
 	Long:  `Remove a worktree and its associated branch. Will prompt if there are uncommitted changes (unless --force is used).`,
 	Args:  cobra.ExactArgs(1),
 	RunE:  runRemove,
@@ -28,92 +26,84 @@ func init() {
 }
 
 func runRemove(cmd *cobra.Command, args []string) error {
-	arg := args[0]
+	worktreeName := args[0]
+	baseDir := config.GetWorktreeBase()
 
-	var worktreeName, repoName, worktreePath string
-	var info *worktree.WorktreeInfo
-	var err error
-
-	u, err := url.Parse(arg)
-	if err == nil && u.Scheme == "https" && strings.Contains(arg, "github.com") {
-		info, err = worktree.ParseArgument(arg)
-		if err != nil {
-			return err
+	// Find the full path of the worktree to remove.
+	worktreePath, err := findWorktreePath(baseDir, worktreeName)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Printf("Worktree '%s' not found, nothing to remove.\n", worktreeName)
+			return nil // Not an error if it's already gone.
 		}
-		repoName = info.Repo
-		worktreeName = info.WorktreeName
-		baseDir := config.GetWorktreeBase()
-		worktreePath = info.GetWorktreePath(baseDir)
-	} else {
-		baseDir := config.GetWorktreeBase()
-		repoName, worktreePath, err = findWorktree(baseDir, arg)
-		if err != nil {
-			if strings.Contains(err.Error(), "not found") {
-				fmt.Printf("Worktree '%s' not found, nothing to remove\n", arg)
-				return nil
-			}
-			return err
-		}
-		worktreeName = arg
-
-		info = &worktree.WorktreeInfo{
-			Type:         worktree.Local,
-			Repo:         repoName,
-			WorktreeName: arg,
-		}
+		return err
 	}
 
-	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
-		fmt.Printf("Worktree '%s' not found, nothing to remove\n", worktreeName)
-		return nil
-	}
-
-	// Get branch name
+	// Get the branch name *before* removing the worktree.
 	branch, err := git.GetCurrentBranch(worktreePath)
 	if err != nil {
-		return fmt.Errorf("failed to get branch name: %w", err)
+		// If we can't get the branch, we can still proceed with directory removal.
+		// We'll just warn the user.
+		fmt.Printf("Warning: could not determine branch for worktree %s. It may need to be manually removed. Error: %v\n", worktreeName, err)
+		branch = "" // Clear branch so we don't try to delete it.
 	}
 
-	// Check for uncommitted changes if not forced
-	if !forceFlag && git.HasUncommittedChanges(worktreePath) {
+	// Handle uncommitted changes prompt.
+	force := forceFlag
+	if !force && git.HasUncommittedChanges(worktreePath) {
 		p := prompter.New(os.Stdin, os.Stdout, os.Stderr)
-		confirm, err := p.Confirm(fmt.Sprintf("Worktree '%s' has uncommitted changes. Remove anyway?", worktreeName), false)
+		confirm, err := p.Confirm("Worktree has uncommitted changes. Remove anyway?", false)
 		if err != nil {
 			return fmt.Errorf("prompt failed: %w", err)
 		}
 		if !confirm {
-			fmt.Println("Cancelled - no changes were made")
+			fmt.Println("Operation cancelled.")
 			return nil
 		}
-		// Force remove since user confirmed
-		forceFlag = true
+		force = true // User confirmed.
 	}
 
-	// Remove worktree
-	if err := worktree.Remove(worktreePath, branch, forceFlag); err != nil {
-		return err
+	// 1. Remove the worktree directory and git metadata.
+	fmt.Printf("Removing worktree '%s'...\n", worktreeName)
+	if err := worktree.Remove(worktreePath, force); err != nil {
+		return fmt.Errorf("failed to remove worktree: %w", err)
+	}
+	fmt.Printf("Successfully removed worktree directory.\n")
+
+	// 2. Delete the associated branch if we found one.
+	if branch != "" {
+		fmt.Printf("Deleting branch '%s'...\n", branch)
+		if err := git.BranchDelete(branch, true); err != nil {
+			// This is not a fatal error, as the primary goal (removing the worktree) succeeded.
+			// The branch might be the main branch or have other worktrees, so git will prevent its deletion.
+			return fmt.Errorf("worktree removed, but failed to delete branch '%s': %w. You may need to remove it manually", branch, err)
+		}
+		fmt.Printf("Successfully deleted branch '%s'.\n", branch)
 	}
 
-	fmt.Printf("Removed worktree: %s\n", worktreeName)
+	fmt.Printf("\nWorktree '%s' and branch '%s' removed successfully.\n", worktreeName, branch)
 	return nil
 }
 
-func findWorktree(baseDir, name string) (repoName, worktreePath string, err error) {
+// findWorktreePath searches across all repo directories in the base directory
+// for a worktree matching the given name.
+func findWorktreePath(baseDir, name string) (string, error) {
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {
-		return "", "", fmt.Errorf("worktree base directory not found: %w", err)
+		return "", fmt.Errorf("could not read worktree base directory '%s': %w", baseDir, err)
 	}
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-
-		possiblePath := filepath.Join(baseDir, entry.Name(), name)
+		repoDir := filepath.Join(baseDir, entry.Name())
+		possiblePath := filepath.Join(repoDir, name)
 		if _, err := os.Stat(possiblePath); err == nil {
-			return entry.Name(), possiblePath, nil
+			// Found it, return the full path
+			return possiblePath, nil
 		}
 	}
 
-	return "", "", fmt.Errorf("worktree '%s' not found", name)
+	return "", os.ErrNotExist
 }

@@ -1,191 +1,67 @@
 package worktree
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/ffalor/gh-worktree/internal/config"
 	"github.com/ffalor/gh-worktree/internal/git"
 )
 
-var ErrCancelled = errors.New("cancelled")
+// Create creates a new worktree.
+// path: The absolute path where the worktree should be created.
+// branch: The exact name of the branch to create.
+// startPoint: The ref to start from (e.g., HEAD, FETCH_HEAD, an existing branch).
+func Create(path, branch, startPoint string) error {
+	var err error
 
-type BranchAction int
-
-const (
-	BranchActionOverwrite BranchAction = iota
-	BranchActionAttach
-	BranchActionCancel
-)
-
-// Creator handles worktree creation with cleanup support
-type Creator struct {
-	baseDir         string
-	createdDirs     []string
-	createdBranches []string
-	branchCheck     func(string) BranchAction
-}
-
-// NewCreator creates a new worktree creator
-func NewCreator() *Creator {
-	return &Creator{
-		baseDir: config.GetWorktreeBase(),
-	}
-}
-
-// NewCreatorWithCheck creates a new worktree creator with a branch check callback
-func NewCreatorWithCheck(check func(string) BranchAction) *Creator {
-	return &Creator{
-		baseDir:     config.GetWorktreeBase(),
-		branchCheck: check,
-	}
-}
-
-// Create creates a new worktree from the given info
-func (c *Creator) Create(info *WorktreeInfo) error {
-	// Note: For Issue and PR types, the details should already be populated
-	// via gh.Exec calls in create.go before this function is called.
-	// For Local type, no API calls are needed.
-	return c.setupWorktree(info)
-}
-
-// Cleanup removes all created resources (for rollback on error)
-func (c *Creator) Cleanup() error {
-	var errs []error
-
-	// Remove created directories
-	for _, dir := range c.createdDirs {
-		if err := os.RemoveAll(dir); err != nil {
-			errs = append(errs, fmt.Errorf("failed to remove directory %s: %w", dir, err))
-		}
-	}
-	// Remove created branches (skip if already gone)
-	for _, branch := range c.createdBranches {
-		if git.BranchExists(branch) {
-			if err := git.BranchDelete(branch, true); err != nil {
-				errs = append(errs, fmt.Errorf("failed to delete branch %s: %w", branch, err))
-			}
-		}
-	}
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-	return nil
-}
-
-func (c *Creator) setupWorktree(info *WorktreeInfo) error {
-	worktreeBase := filepath.Join(c.baseDir, info.Repo)
-	worktreePath := filepath.Join(worktreeBase, info.WorktreeName)
-
-	if err := os.MkdirAll(worktreeBase, 0755); err != nil {
+	// Ensure the base directory exists
+	baseDir := filepath.Dir(path)
+	if err = os.MkdirAll(baseDir, 0755); err != nil {
 		return fmt.Errorf("failed to create worktree directory: %w", err)
-	}
-
-	// Check if worktree exists on disk
-	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
-		return fmt.Errorf("worktree already exists: %s", worktreePath)
 	}
 
 	// Check if git still has a record of this worktree (even though it doesn't exist on disk)
 	// and remove it if necessary
-	if git.WorktreeIsRegistered(worktreePath) {
-		if err := git.WorktreeRemove(worktreePath, true); err != nil {
+	if git.WorktreeIsRegistered(path) {
+		if err = git.WorktreeRemove(path, true); err != nil {
 			return fmt.Errorf("failed to remove stale worktree record: %w", err)
 		}
 	}
 
-	// Determine the branch name we'll use
-	var branchName string
-	switch info.Type {
-	case Issue:
-		branchName = fmt.Sprintf("issue_%d", info.Number)
-	case PR:
-		branchName = info.BranchName
-		if branchName == "" {
-			branchName = fmt.Sprintf("pr_%d", info.Number)
-		}
-	case Local:
-		branchName = info.BranchName
+	if startPoint != "" {
+		err = git.WorktreeAddFromRef(branch, path, startPoint)
+	} else {
+		err = git.WorktreeAdd(branch, path)
 	}
 
-	// Call the branch check callback if provided
-	if c.branchCheck != nil {
-		action := c.branchCheck(branchName)
-		switch action {
-		case BranchActionCancel:
-			return ErrCancelled
-		case BranchActionAttach:
-			// Skip branch creation, use existing branch
-			switch info.Type {
-			case Issue, Local:
-				fmt.Printf("Attaching to existing branch '%s'...\n", branchName)
-				if err := git.WorktreeAddFromBranch(branchName, worktreePath); err != nil {
-					return fmt.Errorf("failed to attach to worktree: %w", err)
-				}
-			case PR:
-				prRef := fmt.Sprintf("refs/pull/%d/head", info.Number)
-				fmt.Printf("Fetching PR #%d...\n", info.Number)
-				if err := git.Fetch(prRef); err != nil {
-					return fmt.Errorf("failed to fetch PR: %w", err)
-				}
-				fmt.Printf("Attaching to existing branch '%s'...\n", branchName)
-				if err := git.WorktreeAddFromBranch(branchName, worktreePath); err != nil {
-					return fmt.Errorf("failed to attach to worktree: %w", err)
-				}
-			}
-			fmt.Printf("\nWorktree created successfully!\n")
-			fmt.Printf("Location: %s\n", worktreePath)
-			absPath, _ := filepath.Abs(worktreePath)
-			fmt.Printf("\nTo switch to the worktree:\n")
-			fmt.Printf("  cd %s\n", absPath)
-			return nil
-		}
-		// BranchActionOverwrite: continue to delete and recreate
+	if err != nil {
+		return fmt.Errorf("failed to create worktree: %w", err)
 	}
-
-	// Track for potential cleanup
-	c.createdDirs = append(c.createdDirs, worktreePath)
-
-	switch info.Type {
-	case Issue, Local:
-		fmt.Printf("Creating branch '%s'...\n", branchName)
-		if err := git.WorktreeAdd(branchName, worktreePath); err != nil {
-			return fmt.Errorf("failed to create worktree: %w", err)
-		}
-		c.createdBranches = append(c.createdBranches, branchName)
-
-	case PR:
-		prRef := fmt.Sprintf("refs/pull/%d/head", info.Number)
-		fmt.Printf("Fetching PR #%d...\n", info.Number)
-		if err := git.Fetch(prRef); err != nil {
-			return fmt.Errorf("failed to fetch PR: %w", err)
-		}
-
-		fmt.Printf("Creating worktree for branch '%s'...\n", branchName)
-		if err := git.WorktreeAddFromRef(branchName, worktreePath, "FETCH_HEAD"); err != nil {
-			return fmt.Errorf("failed to create worktree: %w", err)
-		}
-		c.createdBranches = append(c.createdBranches, branchName)
-	}
-
-	fmt.Printf("\nWorktree created successfully!\n")
-	fmt.Printf("Location: %s\n", worktreePath)
-
-	absPath, _ := filepath.Abs(worktreePath)
-	fmt.Printf("\nTo switch to the worktree:\n")
-	fmt.Printf("  cd %s\n", absPath)
 
 	return nil
 }
 
-// Remove removes a worktree and its branch
-func Remove(worktreePath, branch string, force bool) error {
+// Attach creates a new worktree from an existing branch.
+func Attach(path, branch string) error {
+	// Ensure the base directory exists
+	baseDir := filepath.Dir(path)
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		return fmt.Errorf("failed to create worktree directory: %w", err)
+	}
+
+	if err := git.WorktreeAddFromBranch(branch, path); err != nil {
+		return fmt.Errorf("failed to attach to worktree: %w", err)
+	}
+	return nil
+}
+
+// Remove removes a worktree.
+// This function is responsible for running `git worktree remove` and ensuring the directory is gone.
+func Remove(path string, force bool) error {
 	// Check for uncommitted changes if not forced
-	if !force && git.HasUncommittedChanges(worktreePath) {
+	if !force && git.HasUncommittedChanges(path) {
 		return fmt.Errorf("worktree has uncommitted changes")
 	}
 
@@ -194,71 +70,33 @@ func Remove(worktreePath, branch string, force bool) error {
 	worktrees, err := git.ListWorktrees()
 	if err == nil {
 		for _, wt := range worktrees {
-			if strings.HasSuffix(wt, worktreePath) || wt == worktreePath {
+			if strings.HasSuffix(wt, path) || wt == path {
 				exactPath = wt
 				break
 			}
 		}
 	}
 
-	// Remove worktree
+	// Remove worktree from git records
 	if exactPath != "" {
 		if err := git.WorktreeRemove(exactPath, force); err != nil {
-			// If git worktree remove fails, try manual removal
-			if err := os.RemoveAll(worktreePath); err != nil {
+			// If git worktree remove fails, try manual removal as a fallback
+			if err := os.RemoveAll(path); err != nil {
 				return err
 			}
 		}
-	} else {
-		// Worktree not registered in git (or can't list), just remove from disk
-		if err := os.RemoveAll(worktreePath); err != nil {
-			return err
-		}
 	}
 
-	// Delete branch
-	if err := git.BranchDelete(branch, true); err != nil {
-		return fmt.Errorf("failed to delete branch: %w", err)
+	// Final cleanup: ensure the directory is removed, even if it wasn't registered in git
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		return os.RemoveAll(path)
 	}
 
 	return nil
 }
 
-// List returns all worktrees for a repository
-func List() ([]WorktreeListItem, error) {
-	worktreePaths, err := git.ListWorktrees()
-	if err != nil {
-		return nil, err
-	}
-
-	var items []WorktreeListItem
-	for _, path := range worktreePaths {
-		item := WorktreeListItem{
-			Path: path,
-			Name: filepath.Base(path),
-		}
-
-		// Get branch name
-		if branch, err := git.GetCurrentBranch(path); err == nil {
-			item.Branch = branch
-		}
-
-		// Check for uncommitted changes
-		item.HasChanges = git.HasUncommittedChanges(path)
-
-		// Get modification time
-		if info, err := os.Stat(path); err == nil {
-			item.LastModTime = info.ModTime().Unix()
-		}
-
-		items = append(items, item)
-	}
-
-	return items, nil
-}
-
-// WorktreeExists checks if a worktree already exists
-func WorktreeExists(path string) bool {
+// Exists checks if a worktree already exists on disk.
+func Exists(path string) bool {
 	_, err := os.Stat(path)
 	return !os.IsNotExist(err)
 }
