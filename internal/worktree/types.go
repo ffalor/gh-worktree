@@ -47,8 +47,6 @@ const (
 	Issue WorktreeType = "issue"
 	PR    WorktreeType = "pr"
 	Local WorktreeType = "local"
-
-	BareDir = ".bare"
 )
 
 // WorktreeInfo holds information about a worktree to create
@@ -59,7 +57,6 @@ type WorktreeInfo struct {
 	Number       int
 	BranchName   string
 	WorktreeName string
-	RepoPath     string // Path to repo for local worktrees
 }
 
 // ParseArgument parses the command line argument
@@ -150,7 +147,6 @@ func parseLocalName(name string) (*WorktreeInfo, error) {
 		BranchName:   validBranchName,
 		WorktreeName: name,
 		Repo:         repoName,
-		RepoPath:     repoPath,
 	}, nil
 }
 
@@ -163,11 +159,6 @@ func SanitizeBranchName(name string) string {
 // GetWorktreePath returns the full path to the worktree
 func (w *WorktreeInfo) GetWorktreePath(baseDir string) string {
 	return filepath.Join(baseDir, w.Repo, w.WorktreeName)
-}
-
-// GetRepoPath returns the path to the bare repository
-func (w *WorktreeInfo) GetRepoPath(baseDir string) string {
-	return filepath.Join(baseDir, w.Repo, BareDir)
 }
 
 // WorktreeListItem represents a single worktree in the list

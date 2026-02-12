@@ -63,19 +63,6 @@ func runRemove(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	baseDir := config.GetWorktreeBase()
-
-	var repoPath string
-	if info.Type == worktree.Local {
-		gitCommonDir, err := git.GetGitCommonDir(worktreePath)
-		if err != nil {
-			return fmt.Errorf("failed to get git directory: %w", err)
-		}
-		repoPath = filepath.Dir(gitCommonDir)
-	} else {
-		repoPath = info.GetRepoPath(baseDir)
-	}
-
 	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
 		fmt.Printf("Worktree '%s' not found, nothing to remove\n", worktreeName)
 		return nil
@@ -103,7 +90,7 @@ func runRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	// Remove worktree
-	if err := worktree.Remove(repoPath, worktreePath, branch, forceFlag); err != nil {
+	if err := worktree.Remove(worktreePath, branch, forceFlag); err != nil {
 		return err
 	}
 

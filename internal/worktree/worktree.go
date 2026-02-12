@@ -26,7 +26,6 @@ type Creator struct {
 	baseDir         string
 	createdDirs     []string
 	createdBranches []string
-	repoPath        string
 	branchCheck     func(string) BranchAction
 }
 
@@ -65,8 +64,8 @@ func (c *Creator) Cleanup() error {
 	}
 	// Remove created branches (skip if already gone)
 	for _, branch := range c.createdBranches {
-		if git.BranchExists(c.repoPath, branch) {
-			if err := git.BranchDelete(c.repoPath, branch, true); err != nil {
+		if git.BranchExists(branch) {
+			if err := git.BranchDelete(branch, true); err != nil {
 				errs = append(errs, fmt.Errorf("failed to delete branch %s: %w", branch, err))
 			}
 		}
@@ -86,23 +85,6 @@ func (c *Creator) setupWorktree(info *WorktreeInfo) error {
 		return fmt.Errorf("failed to create worktree directory: %w", err)
 	}
 
-	if info.Type == Local {
-		c.repoPath = info.RepoPath
-	} else {
-		c.repoPath = filepath.Join(worktreeBase, BareDir)
-
-		if _, err := os.Stat(c.repoPath); os.IsNotExist(err) {
-			fmt.Printf("Cloning %s/%s...\n", info.Owner, info.Repo)
-			repoSpec := fmt.Sprintf("%s/%s", info.Owner, info.Repo)
-			if err := git.CloneBare(worktreeBase, repoSpec, BareDir); err != nil {
-				return fmt.Errorf("failed to clone repository: %w", err)
-			}
-			if err := git.ConfigRemote(c.repoPath); err != nil {
-				return fmt.Errorf("failed to configure remote: %w", err)
-			}
-		}
-	}
-
 	// Check if worktree exists on disk
 	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
 		return fmt.Errorf("worktree already exists: %s", worktreePath)
@@ -110,8 +92,8 @@ func (c *Creator) setupWorktree(info *WorktreeInfo) error {
 
 	// Check if git still has a record of this worktree (even though it doesn't exist on disk)
 	// and remove it if necessary
-	if git.WorktreeIsRegistered(c.repoPath, worktreePath) {
-		if err := git.WorktreeRemove(c.repoPath, worktreePath, true); err != nil {
+	if git.WorktreeIsRegistered(worktreePath) {
+		if err := git.WorktreeRemove(worktreePath, true); err != nil {
 			return fmt.Errorf("failed to remove stale worktree record: %w", err)
 		}
 	}
@@ -141,17 +123,17 @@ func (c *Creator) setupWorktree(info *WorktreeInfo) error {
 			switch info.Type {
 			case Issue, Local:
 				fmt.Printf("Attaching to existing branch '%s'...\n", branchName)
-				if err := git.WorktreeAddFromBranch(c.repoPath, branchName, worktreePath); err != nil {
+				if err := git.WorktreeAddFromBranch(branchName, worktreePath); err != nil {
 					return fmt.Errorf("failed to attach to worktree: %w", err)
 				}
 			case PR:
 				prRef := fmt.Sprintf("refs/pull/%d/head", info.Number)
 				fmt.Printf("Fetching PR #%d...\n", info.Number)
-				if err := git.Fetch(c.repoPath, prRef); err != nil {
+				if err := git.Fetch(prRef); err != nil {
 					return fmt.Errorf("failed to fetch PR: %w", err)
 				}
 				fmt.Printf("Attaching to existing branch '%s'...\n", branchName)
-				if err := git.WorktreeAddFromBranch(c.repoPath, branchName, worktreePath); err != nil {
+				if err := git.WorktreeAddFromBranch(branchName, worktreePath); err != nil {
 					return fmt.Errorf("failed to attach to worktree: %w", err)
 				}
 			}
@@ -171,7 +153,7 @@ func (c *Creator) setupWorktree(info *WorktreeInfo) error {
 	switch info.Type {
 	case Issue, Local:
 		fmt.Printf("Creating branch '%s'...\n", branchName)
-		if err := git.WorktreeAdd(c.repoPath, branchName, worktreePath); err != nil {
+		if err := git.WorktreeAdd(branchName, worktreePath); err != nil {
 			return fmt.Errorf("failed to create worktree: %w", err)
 		}
 		c.createdBranches = append(c.createdBranches, branchName)
@@ -179,12 +161,12 @@ func (c *Creator) setupWorktree(info *WorktreeInfo) error {
 	case PR:
 		prRef := fmt.Sprintf("refs/pull/%d/head", info.Number)
 		fmt.Printf("Fetching PR #%d...\n", info.Number)
-		if err := git.Fetch(c.repoPath, prRef); err != nil {
+		if err := git.Fetch(prRef); err != nil {
 			return fmt.Errorf("failed to fetch PR: %w", err)
 		}
 
 		fmt.Printf("Creating worktree for branch '%s'...\n", branchName)
-		if err := git.WorktreeAddFromRef(c.repoPath, branchName, worktreePath, "FETCH_HEAD"); err != nil {
+		if err := git.WorktreeAddFromRef(branchName, worktreePath, "FETCH_HEAD"); err != nil {
 			return fmt.Errorf("failed to create worktree: %w", err)
 		}
 		c.createdBranches = append(c.createdBranches, branchName)
@@ -201,7 +183,7 @@ func (c *Creator) setupWorktree(info *WorktreeInfo) error {
 }
 
 // Remove removes a worktree and its branch
-func Remove(repoPath, worktreePath, branch string, force bool) error {
+func Remove(worktreePath, branch string, force bool) error {
 	// Check for uncommitted changes if not forced
 	if !force && git.HasUncommittedChanges(worktreePath) {
 		return fmt.Errorf("worktree has uncommitted changes")
@@ -209,7 +191,7 @@ func Remove(repoPath, worktreePath, branch string, force bool) error {
 
 	// Try to get the exact path from git's records
 	var exactPath string
-	worktrees, err := git.ListWorktrees(repoPath)
+	worktrees, err := git.ListWorktrees()
 	if err == nil {
 		for _, wt := range worktrees {
 			if strings.HasSuffix(wt, worktreePath) || wt == worktreePath {
@@ -221,7 +203,7 @@ func Remove(repoPath, worktreePath, branch string, force bool) error {
 
 	// Remove worktree
 	if exactPath != "" {
-		if err := git.WorktreeRemove(repoPath, exactPath, force); err != nil {
+		if err := git.WorktreeRemove(exactPath, force); err != nil {
 			// If git worktree remove fails, try manual removal
 			if err := os.RemoveAll(worktreePath); err != nil {
 				return err
@@ -235,7 +217,7 @@ func Remove(repoPath, worktreePath, branch string, force bool) error {
 	}
 
 	// Delete branch
-	if err := git.BranchDelete(repoPath, branch, true); err != nil {
+	if err := git.BranchDelete(branch, true); err != nil {
 		return fmt.Errorf("failed to delete branch: %w", err)
 	}
 
@@ -243,19 +225,14 @@ func Remove(repoPath, worktreePath, branch string, force bool) error {
 }
 
 // List returns all worktrees for a repository
-func List(repoPath string) ([]WorktreeListItem, error) {
-	worktreePaths, err := git.ListWorktrees(repoPath)
+func List() ([]WorktreeListItem, error) {
+	worktreePaths, err := git.ListWorktrees()
 	if err != nil {
 		return nil, err
 	}
 
 	var items []WorktreeListItem
 	for _, path := range worktreePaths {
-		// Skip the bare repo
-		if filepath.Base(path) == BareDir {
-			continue
-		}
-
 		item := WorktreeListItem{
 			Path: path,
 			Name: filepath.Base(path),

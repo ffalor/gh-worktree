@@ -10,26 +10,31 @@ import (
 	gh "github.com/cli/go-gh/v2"
 )
 
-// Command runs a git command in the specified directory
-func Command(dir string, args ...string) error {
+// Command runs a git command in the current directory
+func Command(args ...string) error {
 	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
-// CommandSilent runs a git command without output
-func CommandSilent(dir string, args ...string) error {
+// CommandSilent runs a git command without output in the current directory
+func CommandSilent(args ...string) error {
 	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
 	return cmd.Run()
 }
 
-// CommandOutput runs a git command and returns the output
-func CommandOutput(dir string, args ...string) (string, error) {
+// CommandOutput runs a git command and returns the output from current directory
+func CommandOutput(args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// CommandOutputAt runs a git command and returns the output from specified directory
+func CommandOutputAt(path string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = path
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -46,54 +51,53 @@ func CloneBare(dir, repo, dest string) error {
 }
 
 // ConfigRemote sets the remote fetch spec to include all refs
-func ConfigRemote(repoPath string) error {
-	return Command(repoPath, "config", "--add", "remote.origin.fetch", "refs/heads/*:refs/remotes/origin/*")
+func ConfigRemote() error {
+	return Command("config", "--add", "remote.origin.fetch", "refs/heads/*:refs/remotes/origin/*")
 }
 
 // WorktreeAdd adds a worktree with a new branch
-func WorktreeAdd(repoPath, branch, worktreePath string) error {
-	return Command(repoPath, "worktree", "add", "-b", branch, worktreePath)
+func WorktreeAdd(branch, worktreePath string) error {
+	return Command("worktree", "add", "-b", branch, worktreePath)
 }
 
 // WorktreeAddFromRef adds a worktree from a specific ref
-func WorktreeAddFromRef(repoPath, branch, worktreePath, ref string) error {
-	return Command(repoPath, "worktree", "add", "-b", branch, worktreePath, ref)
+func WorktreeAddFromRef(branch, worktreePath, ref string) error {
+	return Command("worktree", "add", "-b", branch, worktreePath, ref)
 }
 
 // WorktreeAddFromBranch adds a worktree from an existing branch
-func WorktreeAddFromBranch(repoPath, branch, worktreePath string) error {
-	return Command(repoPath, "worktree", "add", worktreePath, branch)
+func WorktreeAddFromBranch(branch, worktreePath string) error {
+	return Command("worktree", "add", worktreePath, branch)
 }
 
 // WorktreeRemove removes a worktree
-func WorktreeRemove(repoPath, worktreePath string, force bool) error {
+func WorktreeRemove(worktreePath string, force bool) error {
 	args := []string{"worktree", "remove", worktreePath}
 	if force {
 		args = append(args, "--force")
 	}
-	return Command(repoPath, args...)
+	return Command(args...)
 }
 
 // Fetch fetches refs from origin
-func Fetch(repoPath string, refs ...string) error {
+func Fetch(refs ...string) error {
 	args := append([]string{"fetch", "origin"}, refs...)
-	return Command(repoPath, args...)
+	return Command(args...)
 }
 
 // BranchDelete deletes a branch
-func BranchDelete(repoPath, branch string, force bool) error {
+func BranchDelete(branch string, force bool) error {
 	args := []string{"branch", "-d"}
 	if force {
 		args[1] = "-D"
 	}
 	args = append(args, branch)
-	return Command(repoPath, args...)
+	return Command(args...)
 }
 
 // BranchExists checks if a branch exists in the repository
-func BranchExists(repoPath, branch string) bool {
+func BranchExists(branch string) bool {
 	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
-	cmd.Dir = repoPath
 	err := cmd.Run()
 	return err == nil
 }
@@ -110,9 +114,18 @@ func HasUncommittedChanges(worktreePath string) bool {
 	return len(strings.TrimSpace(string(out))) > 0
 }
 
-// GetCurrentBranch returns the current branch name
-func GetCurrentBranch(repoPath string) (string, error) {
-	out, err := CommandOutput(repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+// GetCurrentBranch returns the current branch name in the specified directory
+func GetCurrentBranch(path string) (string, error) {
+	out, err := CommandOutputAt(path, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// GetCurrentBranchAtCwd returns the current branch name at current working directory
+func GetCurrentBranchAtCwd() (string, error) {
+	out, err := CommandOutput("rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return "", err
 	}
@@ -120,8 +133,8 @@ func GetCurrentBranch(repoPath string) (string, error) {
 }
 
 // ListWorktrees lists all worktrees for a repository
-func ListWorktrees(repoPath string) ([]string, error) {
-	out, err := CommandOutput(repoPath, "worktree", "list", "--porcelain")
+func ListWorktrees() ([]string, error) {
+	out, err := CommandOutput("worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list worktrees: %w", err)
 	}
@@ -138,8 +151,8 @@ func ListWorktrees(repoPath string) ([]string, error) {
 }
 
 // WorktreeIsRegistered checks if a worktree path is registered in git
-func WorktreeIsRegistered(repoPath, worktreePath string) bool {
-	worktrees, err := ListWorktrees(repoPath)
+func WorktreeIsRegistered(worktreePath string) bool {
+	worktrees, err := ListWorktrees()
 	if err != nil {
 		return false
 	}
@@ -152,8 +165,8 @@ func WorktreeIsRegistered(repoPath, worktreePath string) bool {
 }
 
 // WorktreePrune prunes stale worktree records
-func WorktreePrune(repoPath string) error {
-	return CommandSilent(repoPath, "worktree", "prune")
+func WorktreePrune() error {
+	return CommandSilent("worktree", "prune")
 }
 
 // IsGitRepository checks if a directory is a git repository
