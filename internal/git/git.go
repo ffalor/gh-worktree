@@ -172,3 +172,8 @@ func GetGitCommonDir(path string) (string, error) {
 	}
 	return strings.TrimSpace(out), nil
 }
+
+func IsBareRepository(path string) bool {
+	out, err := CommandOutput(path, "rev-parse", "--is-bare-repository")
+	return err == nil && strings.TrimSpace(out) == "true"
+}

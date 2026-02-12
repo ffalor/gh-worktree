@@ -134,8 +134,15 @@ func parseLocalName(name string) (*WorktreeInfo, error) {
 		return nil, fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
-	repoPath := filepath.Dir(absGitDir)
-	repoName := filepath.Base(repoPath)
+	var repoPath, repoName string
+	if git.IsBareRepository(".") {
+		repoPath = absGitDir
+		repoName = filepath.Base(filepath.Dir(repoPath))
+	} else {
+		repoPath = filepath.Dir(absGitDir)
+		repoName = filepath.Base(repoPath)
+	}
+
 	validBranchName := SanitizeBranchName(name)
 
 	return &WorktreeInfo{
