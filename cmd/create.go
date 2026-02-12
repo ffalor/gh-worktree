@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
+	gh "github.com/cli/go-gh/v2"
 	"github.com/cli/go-gh/v2/pkg/prompter"
+	"github.com/cli/go-gh/v2/pkg/repository"
 	"github.com/ffalor/gh-worktree/internal/config"
 	"github.com/ffalor/gh-worktree/internal/git"
 	"github.com/ffalor/gh-worktree/internal/worktree"
@@ -17,43 +21,163 @@ var createCmd = &cobra.Command{
 	Use:   "create [url|name]",
 	Short: "Create a new worktree from a GitHub URL or branch name",
 	Long: `Create a new git worktree from either:
-- A GitHub pull request URL
-- A GitHub issue URL
+- A GitHub pull request URL or number
+- A GitHub issue URL or number
 - A local branch name (when run from within a git repository)`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.RangeArgs(0, 1),
 	RunE: runCreate,
 }
 
-var useExistingFlag bool
+var (
+	useExistingFlag bool
+	prFlag          string
+	issueFlag       string
+)
 
 func init() {
 	createCmd.Flags().BoolVarP(&useExistingFlag, "use-existing", "e", false, "use existing branch if it exists")
+	createCmd.Flags().StringVar(&prFlag, "pr", "", "PR number, PR URL, or git remote URL with PR ref")
+	createCmd.Flags().StringVar(&issueFlag, "issue", "", "issue number, issue URL, or git remote URL with issue ref")
 	rootCmd.AddCommand(createCmd)
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
-	arg := args[0]
+	if prFlag != "" {
+		return handlePRFlag(prFlag)
+	}
 
-	info, err := worktree.ParseArgument(arg)
+	if issueFlag != "" {
+		return handleIssueFlag(issueFlag)
+	}
+
+	if len(args) == 0 {
+		return cmd.Help()
+	}
+
+	arg := args[0]
+	worktreeType, err := worktree.DetermineWorktreeType(arg)
 	if err != nil {
 		return err
 	}
 
+	switch worktreeType {
+	case worktree.PR:
+		return handlePRFlag(arg)
+	case worktree.Issue:
+		return handleIssueFlag(arg)
+	default:
+		return handleLocalArgument(arg)
+	}
+}
+
+func handlePRFlag(value string) error {
+	args := []string{"pr", "view", value, "--json", "number,title,headRefName,url,headRepositoryOwner,headRepository"}
+	stdout, stderr, err := gh.Exec(args...)
+
+	if err != nil {
+		return fmt.Errorf("command: gh %s\nerror: %s", strings.Join(args, " "), stderr.String())
+	}
+
+	var prInfo struct {
+		Number         int    `json:"number"`
+		Title          string `json:"title"`
+		HeadRefName    string `json:"headRefName"`
+		URL            string `json:"url"`
+		HeadRepository struct {
+			Name string `json:"name"`
+		} `json:"headRepository"`
+		HeadRepositoryOwner struct {
+			Login string `json:"login"`
+		} `json:"headRepositoryOwner"`
+	}
+
+	if err := json.Unmarshal(stdout.Bytes(), &prInfo); err != nil {
+		return fmt.Errorf("failed to parse PR info: %w", err)
+	}
+
+	fmt.Printf("Creating worktree for PR #%d: %s\n", prInfo.Number, prInfo.Title)
+	fmt.Printf("Checking out branch: %s\n", prInfo.HeadRefName)
+
+	owner := prInfo.HeadRepositoryOwner.Login
+	repo := prInfo.HeadRepository.Name
+	info := &worktree.WorktreeInfo{
+		Type:         worktree.PR,
+		Owner:        owner,
+		Repo:         repo,
+		Number:       prInfo.Number,
+		BranchName:   prInfo.HeadRefName,
+		WorktreeName: fmt.Sprintf("pr_%d", prInfo.Number),
+		CloneURL:     fmt.Sprintf("https://github.com/%s/%s.git", owner, repo),
+	}
+
+	return createWorktree(info)
+}
+
+func handleIssueFlag(value string) error {
+	args := []string{"issue", "view", value, "--json", "number,title,url"}
+	stdout, stderr, err := gh.Exec(args...)
+
+	if err != nil {
+		return fmt.Errorf("command: gh %s\nerror: %s", strings.Join(args, " "), stderr.String())
+	}
+
+	var issueInfo struct {
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+		URL    string `json:"url"`
+	}
+
+	if err := json.Unmarshal(stdout.Bytes(), &issueInfo); err != nil {
+		return fmt.Errorf("failed to parse issue info: %w", err)
+	}
+
+	fmt.Printf("Creating worktree for issue #%d: %s\n", issueInfo.Number, issueInfo.Title)
+
+	repoURL := strings.Split(issueInfo.URL, "/issues/")[0]
+	repo, err := repository.Parse(repoURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse repository from URL: %w", err)
+	}
+
+	info := &worktree.WorktreeInfo{
+		Type:         worktree.Issue,
+		Owner:        repo.Owner,
+		Repo:         repo.Name,
+		Number:       issueInfo.Number,
+		BranchName:   fmt.Sprintf("issue_%d", issueInfo.Number),
+		WorktreeName: fmt.Sprintf("issue_%d", issueInfo.Number),
+		CloneURL:     fmt.Sprintf("https://github.com/%s/%s.git", repo.Owner, repo.Name),
+	}
+
+	return createWorktree(info)
+}
+
+func handleLocalArgument(name string) error {
+	if !git.IsGitRepository(".") {
+		return fmt.Errorf("not in a git repository: cannot create local worktree from branch name '%s'", name)
+	}
+
+	info, err := worktree.ParseArgument(name)
+	if err != nil {
+		return err
+	}
+
+	return createWorktree(info)
+}
+
+func createWorktree(info *worktree.WorktreeInfo) error {
 	baseDir := config.GetWorktreeBase()
 	worktreePath := info.GetWorktreePath(baseDir)
 	repoPath := info.GetRepoPath(baseDir)
 
-	// Check if worktree directory already exists
 	if worktree.WorktreeExists(worktreePath) {
 		if forceFlag {
-			// Force: remove existing worktree
 			fmt.Printf("Force flag set. Removing existing worktree...\n")
 			branch, _ := git.GetCurrentBranch(worktreePath)
 			if err := worktree.Remove(repoPath, worktreePath, branch, true); err != nil {
 				return fmt.Errorf("failed to remove existing worktree: %w", err)
 			}
 		} else {
-			// Prompt user
 			p := prompter.New(os.Stdin, os.Stdout, os.Stderr)
 			confirm, err := p.Confirm(fmt.Sprintf("Worktree already exists at %s. Overwrite?", worktreePath), false)
 			if err != nil {
@@ -63,7 +187,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 				fmt.Println("Operation cancelled")
 				return nil
 			}
-			// Remove existing worktree
 			branch, _ := git.GetCurrentBranch(worktreePath)
 			if err := worktree.Remove(repoPath, worktreePath, branch, true); err != nil {
 				return fmt.Errorf("failed to remove existing worktree: %w", err)
@@ -71,10 +194,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create worktree with cleanup on error
 	creator := worktree.NewCreatorWithCheck(func(branchName string) worktree.BranchAction {
-		// This callback is called after we know the branch name but before creating the worktree
-		// It allows us to check for and handle orphaned branches
 		if branchExists(repoPath, branchName) {
 			if forceFlag {
 				fmt.Printf("Removing existing branch '%s' from bare repository...\n", branchName)
@@ -132,7 +252,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	err = creator.Create(info)
+	err := creator.Create(info)
 	if err != nil {
 		creator.Cleanup()
 		return err
@@ -141,7 +261,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// branchExists checks if a branch exists in the repository
 func branchExists(repoPath, branch string) bool {
 	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
 	cmd.Dir = repoPath

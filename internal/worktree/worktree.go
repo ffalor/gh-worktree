@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/cli/go-gh/v2/pkg/api"
 	"github.com/ffalor/gh-worktree/internal/config"
 	"github.com/ffalor/gh-worktree/internal/git"
 )
@@ -47,25 +46,9 @@ func NewCreatorWithCheck(check func(string) BranchAction) *Creator {
 
 // Create creates a new worktree from the given info
 func (c *Creator) Create(info *WorktreeInfo) error {
-	client, err := api.DefaultRESTClient()
-	if err != nil {
-		return fmt.Errorf("failed to create API client: %w", err)
-	}
-
-	// Fetch details based on type
-	switch info.Type {
-	case Issue:
-		if err := c.fetchIssueDetails(client, info); err != nil {
-			return err
-		}
-	case PR:
-		if err := c.fetchPRDetails(client, info); err != nil {
-			return err
-		}
-	case Local:
-		// No API call needed
-	}
-
+	// Note: For Issue and PR types, the details should already be populated
+	// via gh.Exec calls in create.go before this function is called.
+	// For Local type, no API calls are needed.
 	return c.setupWorktree(info)
 }
 
@@ -79,42 +62,6 @@ func (c *Creator) Cleanup() {
 	for _, branch := range c.createdBranches {
 		_ = git.BranchDelete(c.repoPath, branch, true)
 	}
-}
-
-func (c *Creator) fetchIssueDetails(client *api.RESTClient, info *WorktreeInfo) error {
-	response := struct {
-		Number int    `json:"number"`
-		Title  string `json:"title"`
-	}{}
-
-	path := fmt.Sprintf("repos/%s/%s/issues/%d", info.Owner, info.Repo, info.Number)
-	if err := client.Get(path, &response); err != nil {
-		return fmt.Errorf("failed to fetch issue: %w", err)
-	}
-
-	info.BranchName = fmt.Sprintf("issue_%d", response.Number)
-	fmt.Printf("Creating worktree for issue #%d: %s\n", response.Number, response.Title)
-	return nil
-}
-
-func (c *Creator) fetchPRDetails(client *api.RESTClient, info *WorktreeInfo) error {
-	response := struct {
-		Number int    `json:"number"`
-		Title  string `json:"title"`
-		Head   struct {
-			Ref string `json:"ref"`
-		} `json:"head"`
-	}{}
-
-	path := fmt.Sprintf("repos/%s/%s/pulls/%d", info.Owner, info.Repo, info.Number)
-	if err := client.Get(path, &response); err != nil {
-		return fmt.Errorf("failed to fetch PR: %w", err)
-	}
-
-	info.BranchName = response.Head.Ref
-	fmt.Printf("Creating worktree for PR #%d: %s\n", response.Number, response.Title)
-	fmt.Printf("Checking out branch: %s\n", info.BranchName)
-	return nil
 }
 
 func (c *Creator) setupWorktree(info *WorktreeInfo) error {
@@ -146,7 +93,11 @@ func (c *Creator) setupWorktree(info *WorktreeInfo) error {
 
 	// Check if git still has a record of this worktree (even though it doesn't exist on disk)
 	// and remove it if necessary
-	_ = git.WorktreeRemove(c.repoPath, worktreePath)
+	if git.WorktreeIsRegistered(c.repoPath, worktreePath) {
+		if err := git.WorktreeRemove(c.repoPath, worktreePath); err != nil {
+			return fmt.Errorf("failed to remove stale worktree record: %w", err)
+		}
+	}
 
 	// Determine the branch name we'll use
 	var branchName string

@@ -125,6 +125,20 @@ func ListWorktrees(repoPath string) ([]string, error) {
 	return worktrees, nil
 }
 
+// WorktreeIsRegistered checks if a worktree path is registered in git
+func WorktreeIsRegistered(repoPath, worktreePath string) bool {
+	worktrees, err := ListWorktrees(repoPath)
+	if err != nil {
+		return false
+	}
+	for _, wt := range worktrees {
+		if wt == worktreePath {
+			return true
+		}
+	}
+	return false
+}
+
 // WorktreePrune prunes stale worktree records
 func WorktreePrune(repoPath string) error {
 	return CommandSilent(repoPath, "worktree", "prune")

@@ -11,6 +11,35 @@ import (
 	"github.com/cli/go-gh/v2/pkg/repository"
 )
 
+// DetermineWorktreeType determines the type of worktree based on the input
+// Returns the worktree type and an error message if invalid
+func DetermineWorktreeType(input string) (WorktreeType, error) {
+	u, err := url.Parse(input)
+	if err != nil {
+		return Local, nil
+	}
+
+	if u.Scheme == "" {
+		return Local, nil
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return Local, nil
+	}
+
+	var prPattern = regexp.MustCompile(`^/[^/]+/[^/]+/pull/\d+(?:/.*)?$`)
+	if prPattern.MatchString(u.Path) {
+		return PR, nil
+	}
+
+	var issuePattern = regexp.MustCompile(`^/[^/]+/[^/]+/issues/\d+(?:/.*)?$`)
+	if issuePattern.MatchString(u.Path) {
+		return Issue, nil
+	}
+
+	return Local, nil
+}
+
 // WorktreeType represents the type of worktree
 type WorktreeType string
 
