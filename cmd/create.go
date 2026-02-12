@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -252,6 +253,10 @@ func createWorktree(info *worktree.WorktreeInfo) error {
 
 	err := creator.Create(info)
 	if err != nil {
+		if errors.Is(err, worktree.ErrCancelled) {
+			fmt.Println("Cancelled - no changes were made")
+			return nil
+		}
 		creator.Cleanup()
 		return err
 	}

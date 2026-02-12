@@ -95,7 +95,7 @@ func runRemove(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("prompt failed: %w", err)
 		}
 		if !confirm {
-			fmt.Println("Operation cancelled")
+			fmt.Println("Cancelled - no changes were made")
 			return nil
 		}
 		// Force remove since user confirmed
