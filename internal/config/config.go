@@ -42,7 +42,7 @@ func Load() (*viper.Viper, error) {
 		return nil, fmt.Errorf("cannot determine home directory: %w", err)
 	}
 
-	configDir := filepath.Join(home, ".config", "gh-worktree")
+	configDir := filepath.Join(home, ".config", "gh-wt")
 
 	v.AddConfigPath(configDir)
 
