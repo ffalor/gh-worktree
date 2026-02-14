@@ -103,7 +103,9 @@ func GetWorktreeInfo() ([]WorktreeInfo, error) {
 				Path: strings.TrimPrefix(line, "worktree "),
 			}
 		} else if strings.HasPrefix(line, "branch ") {
-			current.Branch = strings.TrimPrefix(line, "branch ")
+			branch := strings.TrimPrefix(line, "branch ")
+			// Strip "refs/heads/" prefix if present
+			current.Branch = strings.TrimPrefix(branch, "refs/heads/")
 		}
 	}
 	if current.Path != "" {
