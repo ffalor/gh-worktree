@@ -24,9 +24,13 @@ import (
 
 // addCmd represents the add command.
 var addCmd = &cobra.Command{
-	Use:     "add [url|name]",
-	Short:   "Add a new worktree",
-	Long:    `Add a new git worktree from either:\n- A GitHub pull request URL or number\n- A GitHub issue URL or number\n- A name to use for the new worktree and branch`,
+	Use:   "add [url|name]",
+	Short: "Add a new worktree",
+	Long: `Add a new git worktree from either:
+ - A GitHub pull request URL or number
+ - A GitHub issue URL or number
+ - A name to use for the new worktree and branch
+`,
 	Aliases: []string{"create"},
 	Args:    cobra.RangeArgs(0, 1),
 	RunE:    runAdd,
