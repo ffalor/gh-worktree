@@ -78,24 +78,6 @@ func HasUncommittedChanges(worktreePath string) bool {
 	return len(strings.TrimSpace(string(out))) > 0
 }
 
-// ListWorktrees lists all worktrees for a repository
-func ListWorktrees() ([]string, error) {
-	out, err := CommandOutput("worktree", "list", "--porcelain")
-	if err != nil {
-		return nil, fmt.Errorf("failed to list worktrees: %w", err)
-	}
-
-	var worktrees []string
-	lines := strings.Split(out, "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "worktree ") {
-			path := strings.TrimPrefix(line, "worktree ")
-			worktrees = append(worktrees, path)
-		}
-	}
-	return worktrees, nil
-}
-
 // WorktreeInfo represents information about a worktree
 type WorktreeInfo struct {
 	Path   string
@@ -132,12 +114,12 @@ func GetWorktreeInfo() ([]WorktreeInfo, error) {
 
 // WorktreeIsRegistered checks if a worktree path is registered in git
 func WorktreeIsRegistered(worktreePath string) bool {
-	worktrees, err := ListWorktrees()
+	worktrees, err := GetWorktreeInfo()
 	if err != nil {
 		return false
 	}
 	for _, wt := range worktrees {
-		if wt == worktreePath {
+		if wt.Path == worktreePath {
 			return true
 		}
 	}

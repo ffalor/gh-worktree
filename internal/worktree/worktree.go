@@ -53,11 +53,11 @@ func Remove(path string, force bool) error {
 
 	// Try to get the exact path from git's records
 	var exactPath string
-	worktrees, err := git.ListWorktrees()
+	worktrees, err := git.GetWorktreeInfo()
 	if err == nil {
 		for _, wt := range worktrees {
-			if strings.HasSuffix(wt, path) || wt == path {
-				exactPath = wt
+			if strings.HasSuffix(wt.Path, path) || wt.Path == path {
+				exactPath = wt.Path
 				break
 			}
 		}
