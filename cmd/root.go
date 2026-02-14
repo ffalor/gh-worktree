@@ -159,13 +159,10 @@ func isKnownCommand(arg string) bool {
 func init() {
 	// Global flags
 	rootCmd.PersistentFlags().BoolVarP(&forceFlag, "force", "f", false, "force operation without prompts")
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
+	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "verbose output")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "disable color output")
 
 	// Version flag
 	rootCmd.Version = buildVersion(Version, Commit, Date, BuiltBy)
 	rootCmd.SetVersionTemplate(`gh-wt version {{.Version}}`)
-	rootCmd.Flags().BoolVarP(&showVersion, "version", "V", false, "version for gh-wt")
 }
-
-var showVersion bool
