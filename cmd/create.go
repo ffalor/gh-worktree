@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	gh "github.com/cli/go-gh/v2"
+	"github.com/cli/go-gh/v2/pkg/prompter"
 	"github.com/cli/go-gh/v2/pkg/repository"
 	"github.com/ffalor/gh-worktree/internal/config"
 	"github.com/ffalor/gh-worktree/internal/git"
@@ -217,7 +218,7 @@ func createWorktree(info *WorktreeInfo, startPoint string) error {
 	hasConflict := worktreeDirExists || worktreeGitRegistered || branchExists
 
 	if hasConflict {
-		//p := prompter.New(os.Stdin, os.Stdout, os.Stderr)
+		p := prompter.New(os.Stdin, os.Stdout, os.Stderr)
 
 		// Build the "This will:" message
 		var message strings.Builder
@@ -299,11 +300,17 @@ func createWorktree(info *WorktreeInfo, startPoint string) error {
 
 		message.WriteString("\nOverwrite?")
 
-		fmt.Println("would prompt " + message.String())
-		// overwrite, err := p.Confirm(message.String(), false)
-		// if err != nil || !overwrite {
-		// 	return errors.New("operation cancelled")
-		// }
+		// If force flag is set, skip the prompt
+		if !forceFlag {
+			overwrite, err := p.Confirm(message.String(), false)
+			if err != nil {
+				return fmt.Errorf("failed to read confirmation: %w", err)
+			}
+			if !overwrite {
+				fmt.Println("Cancelled - no changes made")
+				return nil
+			}
+		}
 
 		// Perform cleanup based on what exists
 		if worktreeDirExists && worktreeGitRegistered {

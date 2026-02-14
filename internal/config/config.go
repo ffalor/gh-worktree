@@ -98,6 +98,16 @@ func Get() (Config, error) {
 	if err := v.Unmarshal(&cfg); err != nil {
 		return Config{}, fmt.Errorf("cannot unmarshal config: %w", err)
 	}
+
+	// Expand tilde in WorktreeBase if present
+	if strings.HasPrefix(cfg.WorktreeBase, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return Config{}, fmt.Errorf("cannot determine home directory: %w", err)
+		}
+		cfg.WorktreeBase = filepath.Join(home, cfg.WorktreeBase[2:])
+	}
+
 	return cfg, nil
 }
 
