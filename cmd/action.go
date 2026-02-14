@@ -14,7 +14,6 @@ var (
 var actionCmd = &cobra.Command{
 	Use:   "action",
 	Short: "Manage and list actions",
-	Long:  "List available actions or run a specific action",
 	RunE:  runAction,
 }
 
