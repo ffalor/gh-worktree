@@ -1,16 +1,18 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/viper"
 )
 
 // Config holds the application configuration
 type Config struct {
-	WorktreeBase string `mapstructure:"worktree_base"`
+	WorktreeBase string `mapstructure:"worktree_dir"`
 }
 
 // Default values
@@ -20,64 +22,97 @@ const (
 	ConfigType          = "yaml"
 )
 
-// Init initializes Viper configuration
-func Init() error {
-	// Set default values
-	viper.SetDefault("worktree_base", expandHome(DefaultWorktreeBase))
+var v *viper.Viper
 
-	// Set config file details
-	viper.SetConfigName(ConfigName)
-	viper.SetConfigType(ConfigType)
+// Load initializes Viper and reads the configuration.
+// It returns the loaded Viper instance and handles file-not-found gracefully.
+func Load() (*viper.Viper, error) {
+	v = viper.New()
 
-	// Set config search path
-	configDir := filepath.Join(os.Getenv("HOME"), ".config", "gh-worktree")
-	viper.AddConfigPath(configDir)
-
-	// Create config directory if it doesn't exist
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("cannot determine home directory: %w", err)
 	}
 
-	// Set env prefix for environment variables
-	viper.SetEnvPrefix("GH_WORKTREE")
-	viper.AutomaticEnv()
+	configDir := filepath.Join(home, ".config", "gh-worktree")
 
-	// Read config file if it exists
-	if err := viper.ReadInConfig(); err != nil {
-		// It's okay if config file doesn't exist
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return fmt.Errorf("failed to read config: %w", err)
+	v.AddConfigPath(configDir)
+
+	v.SetConfigName(ConfigName)
+	v.SetConfigType(ConfigType)
+
+	v.AutomaticEnv()
+	v.SetEnvPrefix("GH_WT")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+
+	// Sensible defaults
+	v.SetDefault("worktree_dir", filepath.Join(home, "github", "worktree"))
+
+	if err := v.ReadInConfig(); err != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
+			return nil, fmt.Errorf("failed to parse config file: %w", err)
 		}
+	}
+
+	return v, nil
+}
+
+// Save persists the current Viper state to the config file.
+// Creates directories and file if needed.
+func Save() error {
+	if v == nil {
+		return errors.New("config not initialized; call Load first")
+	}
+
+	configFile := v.ConfigFileUsed()
+	if configFile == "" {
+		home, _ := os.UserHomeDir()
+		configDir := filepath.Join(home, ".config", "gh-worktree")
+		configFile = filepath.Join(configDir, "config.yaml")
+
+		if err := os.MkdirAll(filepath.Dir(configFile), 0755); err != nil {
+			return fmt.Errorf("cannot create config directory: %w", err)
+		}
+	}
+
+	// SafeWriteConfigAs creates if missing, refuses to overwrite unexpectedly
+	if err := v.SafeWriteConfigAs(configFile); err != nil {
+		if os.IsNotExist(err) {
+			return v.WriteConfigAs(configFile)
+		}
+		return fmt.Errorf("failed to write config to %s: %w", configFile, err)
 	}
 
 	return nil
 }
 
-// GetWorktreeBase returns the worktree base directory
-func GetWorktreeBase() string {
-	return expandHome(viper.GetString("worktree_base"))
-}
-
-// SetWorktreeBase sets the worktree base directory
-func SetWorktreeBase(path string) {
-	viper.Set("worktree_base", path)
-}
-
-// WriteConfig writes the current configuration to file
-func WriteConfig() error {
-	configDir := filepath.Join(os.Getenv("HOME"), ".config", "gh-worktree")
-	configFile := filepath.Join(configDir, ConfigName+"."+ConfigType)
-
-	return viper.WriteConfigAs(configFile)
-}
-
-// expandHome expands ~ to home directory
-func expandHome(path string) string {
-	if len(path) > 0 && path[0] == '~' {
-		home, err := os.UserHomeDir()
-		if err == nil {
-			return filepath.Join(home, path[1:])
-		}
+// Get returns the unmarshaled configuration struct.
+// Prefer this over direct viper.Get* calls for type safety.
+func Get() (Config, error) {
+	if v == nil {
+		return Config{}, errors.New("config not initialized")
 	}
-	return path
+
+	var cfg Config
+	if err := v.Unmarshal(&cfg); err != nil {
+		return Config{}, fmt.Errorf("cannot unmarshal config: %w", err)
+	}
+	return cfg, nil
+}
+
+// Set updates a value in the Viper store (in memory only).
+// Call Save() afterward to persist changes.
+func Set(key string, value any) {
+	if v != nil {
+		v.Set(key, value)
+	}
+}
+
+// ConfigFileUsed returns the path of the loaded config file (or "" if none).
+func ConfigFileUsed() string {
+	if v != nil {
+		return v.ConfigFileUsed()
+	}
+	return ""
 }

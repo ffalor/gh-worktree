@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -11,7 +10,6 @@ import (
 	"strings"
 
 	gh "github.com/cli/go-gh/v2"
-	"github.com/cli/go-gh/v2/pkg/prompter"
 	"github.com/cli/go-gh/v2/pkg/repository"
 	"github.com/ffalor/gh-worktree/internal/config"
 	"github.com/ffalor/gh-worktree/internal/git"
@@ -202,7 +200,11 @@ func createFromLocal(name string) error {
 // createWorktree is the central function that performs the creation.
 // It contains all the logic for path generation, user prompts, and calling the worktree package.
 func createWorktree(info *WorktreeInfo, startPoint string) error {
-	baseDir := config.GetWorktreeBase()
+	cfg, err := config.Get()
+	if err != nil {
+		return err
+	}
+	baseDir := cfg.WorktreeBase
 	worktreePath := filepath.Join(baseDir, info.Repo, info.WorktreeName)
 	absPath, _ := filepath.Abs(worktreePath)
 
@@ -215,7 +217,7 @@ func createWorktree(info *WorktreeInfo, startPoint string) error {
 	hasConflict := worktreeDirExists || worktreeGitRegistered || branchExists
 
 	if hasConflict {
-		p := prompter.New(os.Stdin, os.Stdout, os.Stderr)
+		//p := prompter.New(os.Stdin, os.Stdout, os.Stderr)
 
 		// Build the "This will:" message
 		var message strings.Builder
@@ -297,10 +299,11 @@ func createWorktree(info *WorktreeInfo, startPoint string) error {
 
 		message.WriteString("\nOverwrite?")
 
-		overwrite, err := p.Confirm(message.String(), false)
-		if err != nil || !overwrite {
-			return errors.New("operation cancelled")
-		}
+		fmt.Println("would prompt " + message.String())
+		// overwrite, err := p.Confirm(message.String(), false)
+		// if err != nil || !overwrite {
+		// 	return errors.New("operation cancelled")
+		// }
 
 		// Perform cleanup based on what exists
 		if worktreeDirExists && worktreeGitRegistered {
@@ -330,7 +333,7 @@ func createWorktree(info *WorktreeInfo, startPoint string) error {
 	}
 
 	// Create the new worktree.
-	err := worktree.Create(worktreePath, info.BranchName, startPoint)
+	err = worktree.Create(worktreePath, info.BranchName, startPoint)
 	if err != nil {
 		// Simple cleanup: if creation fails, try to remove the directory if it was created.
 		if worktree.Exists(worktreePath) {

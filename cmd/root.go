@@ -36,6 +36,10 @@ Examples:
   # Remove a worktree
   gh worktree remove pr_123`,
 	Args: cobra.ArbitraryArgs,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		_, err := config.Load()
+		return err
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// If arguments provided, treat as create command
 		if len(args) > 0 {
@@ -93,16 +97,6 @@ func isKnownCommand(arg string) bool {
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
-
 	// Global flags
 	rootCmd.PersistentFlags().BoolVarP(&forceFlag, "force", "f", false, "force operation without prompts")
-}
-
-// initConfig reads in config file and ENV variables if set
-func initConfig() {
-	if err := config.Init(); err != nil {
-		// Non-fatal: continue with defaults
-		// Could log this in verbose mode
-	}
 }

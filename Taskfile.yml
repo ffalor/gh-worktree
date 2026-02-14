@@ -3,6 +3,7 @@ version: "3"
 tasks:
   remove:
     desc: Remove the gh extension
+    ignore_error: true
     cmds:
       - gh extension remove worktree
 
