@@ -19,19 +19,23 @@ tasks:
   fmt:
     desc: Run gofumpt
     cmds:
-      - gofumpt -w $(git ls-files '*.go')
+      - golangci-lint run --path-mode=abs --config=".golangci.yml" --timeout=5m --fix
+    env:
+      GOEXPERIMENT: null
 
   lint:
     desc: Run linters
     cmds:
-      - go fmt ./...
-      - go vet ./...
+      - golangci-lint run --path-mode=abs --config=".golangci.yml" --timeout=5m
+    env:
+      GOEXPERIMENT: null
 
   lint-fix:
     desc: Run linters and fix issues
     cmds:
-      - go fmt ./...
-      - go vet -shadow ./...
+      - golangci-lint run --path-mode=abs --config=".golangci.yml" --timeout=5m --fix
+    env:
+      GOEXPERIMENT: null
 
   test:
     desc: Run tests
