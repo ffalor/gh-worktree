@@ -61,7 +61,7 @@ func Execute() {
 				break
 			}
 		}
-		
+
 		if firstNonFlagIdx > 0 {
 			firstNonFlag := os.Args[firstNonFlagIdx]
 			// If it doesn't look like a known subcommand, insert "create"
@@ -76,7 +76,7 @@ func Execute() {
 			}
 		}
 	}
-	
+
 	err := rootCmd.Execute()
 	if err != nil {
 		os.Exit(1)

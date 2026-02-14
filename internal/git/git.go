@@ -115,6 +115,40 @@ func ListWorktrees() ([]string, error) {
 	return worktrees, nil
 }
 
+// WorktreeInfo represents information about a worktree
+type WorktreeInfo struct {
+	Path   string
+	Branch string
+}
+
+// GetWorktreeInfo returns worktree info (path and branch) for all worktrees
+func GetWorktreeInfo() ([]WorktreeInfo, error) {
+	out, err := CommandOutput("worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, fmt.Errorf("failed to list worktrees: %w", err)
+	}
+
+	var worktrees []WorktreeInfo
+	var current WorktreeInfo
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "worktree ") {
+			if current.Path != "" {
+				worktrees = append(worktrees, current)
+			}
+			current = WorktreeInfo{
+				Path: strings.TrimPrefix(line, "worktree "),
+			}
+		} else if strings.HasPrefix(line, "branch ") {
+			current.Branch = strings.TrimPrefix(line, "branch ")
+		}
+	}
+	if current.Path != "" {
+		worktrees = append(worktrees, current)
+	}
+	return worktrees, nil
+}
+
 // WorktreeIsRegistered checks if a worktree path is registered in git
 func WorktreeIsRegistered(worktreePath string) bool {
 	worktrees, err := ListWorktrees()
@@ -127,6 +161,20 @@ func WorktreeIsRegistered(worktreePath string) bool {
 		}
 	}
 	return false
+}
+
+// GetWorktreeBranch returns the branch that a worktree is on
+func GetWorktreeBranch(worktreePath string) (string, error) {
+	worktrees, err := GetWorktreeInfo()
+	if err != nil {
+		return "", err
+	}
+	for _, wt := range worktrees {
+		if wt.Path == worktreePath {
+			return wt.Branch, nil
+		}
+	}
+	return "", nil
 }
 
 // WorktreePrune prunes stale worktree records

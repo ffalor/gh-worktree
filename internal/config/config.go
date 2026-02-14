@@ -67,7 +67,7 @@ func SetWorktreeBase(path string) {
 func WriteConfig() error {
 	configDir := filepath.Join(os.Getenv("HOME"), ".config", "gh-worktree")
 	configFile := filepath.Join(configDir, ConfigName+"."+ConfigType)
-	
+
 	return viper.WriteConfigAs(configFile)
 }
 
