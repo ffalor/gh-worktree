@@ -230,16 +230,10 @@ func createWorktree(info *worktree.WorktreeInfo, startPoint string) error {
 			message.WriteString("- Remove stale worktree record at ")
 			message.WriteString(absPath)
 			message.WriteString("\n")
-		} else if worktreeDirExists {
-			// Disk only - just remove directory
-			if err := os.RemoveAll(worktreePath); err != nil {
-				return fmt.Errorf("failed to remove directory: %w", err)
-			}
-		} else if worktreeGitRegistered {
-			// Git only - prune the record
-			if err := git.WorktreePrune(); err != nil {
-				return fmt.Errorf("failed to prune worktree: %w", err)
-			}
+		} else if worktreeDirExists { // Disk only - just remove directory
+			message.WriteString("- Remove directory at ")
+			message.WriteString(absPath)
+			message.WriteString("\n")
 		}
 
 		// Add branch actions
