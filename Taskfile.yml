@@ -1,33 +1,42 @@
+# https://taskfile.dev
+
 version: "3"
+silent: true
 
 tasks:
-  remove:
-    desc: Remove the gh extension
-    ignore_error: true
+  default:
     cmds:
-      - gh extension remove wt
+      - go run . {{.CLI_ARGS}}
+    interactive: true
+    desc: Run gh-wt
 
-  install:
-    desc: Install the gh extension locally
-    deps: [remove, build]
+  debug:
     cmds:
-      - gh extension install . --force
+      - DEBUG=true go run . --debug {{.CLI_ARGS}}
+    interactive: true
+    desc: Run in debug mode
 
-  run:
-    desc: Run the installed extension
+  fmt:
+    desc: Run gofumpt
     cmds:
-      - gh wt{{if .CLI_ARGS}} {{.CLI_ARGS}}{{end}}
+      - gofumpt -w $(git ls-files '*.go')
 
-  dev:
-    desc: Build and run the extension for development
-    deps: [build]
+  lint:
+    desc: Run linters
     cmds:
-      - ./gh-wt{{if .CLI_ARGS}} {{.CLI_ARGS}}{{end}}
+      - go fmt ./...
+      - go vet ./...
 
-  version:
-    desc: Get current version from git tags
+  lint-fix:
+    desc: Run linters and fix issues
     cmds:
-      - git describe --tags --dirty --always
+      - go fmt ./...
+      - go vet -shadow ./...
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test -v ./...
 
   build:
     desc: Build the extension binary
@@ -41,3 +50,24 @@ tasks:
     desc: Remove built binary
     cmds:
       - rm -f gh-wt
+
+  install:
+    desc: Install the gh extension locally
+    cmds:
+      - gh extension install . --force
+
+  remove:
+    desc: Remove the gh extension
+    ignore_error: true
+    cmds:
+      - gh extension remove wt
+
+  run:
+    desc: Run the installed extension
+    cmds:
+      - gh wt{{if .CLI_ARGS}} {{.CLI_ARGS}}{{end}}
+
+  version:
+    desc: Get current version from git tags
+    cmds:
+      - git describe --tags --dirty --always
